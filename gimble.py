@@ -2,13 +2,18 @@ import RPi.GPIO as GPIO
 import time
 from multiprocessing import Process, Queue
 from adafruit_servokit import ServoKit
+import RPi.GPIO as GPIO
+
 
 
 
 
 
 def Gimble(Queue):
-
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(22, GPIO.OUT)
+    GPIO.setup(17, GPIO.OUT)
+    GPIO.setup(27, GPIO.OUT)
     kit = ServoKit(channels=16, address=0x40)
     kit.servo[0].set_pulse_width_range(500, 2500)
     kit.servo[1].set_pulse_width_range(500, 2500)
@@ -18,10 +23,10 @@ def Gimble(Queue):
     bottom_angle = 0
     top_angle = 0
 
-    base_angle_b = 90
+    #base_angle_b = 90
     base_angle_t = 90
 
-    prev_X_Error = 0
+    #prev_X_Error = 0
     prev_Y_Error = 0
 
         
@@ -29,7 +34,7 @@ def Gimble(Queue):
     ki_1 = 0.015
     kd_1 = 0.01 
 
-    kp_2 = 0.01
+    kp_2 = 0.02
     ki_2 = 0.015
     kd_2 = 0.01
 
@@ -63,51 +68,60 @@ def Gimble(Queue):
         while True:
 
             cords = Queue.get()
+
             if cords != 'No_Target':
                 X_Error = cords[0]
                 Y_Error = cords[1]
+                Command = cords[3]
+                GPIO.output(22, GPIO.LOW)
+                GPIO.output(17, GPIO.LOW)
+                GPIO.output(27, GPIO.HIGH)
+               
             else:
-    
                 X_Error = X_Error
                 Y_Error = Y_Error
+                Command = 0
+                GPIO.output(22, GPIO.HIGH)
+                GPIO.output(17, GPIO.LOW)
+                GPIO.output(27, GPIO.LOW)
 
-            P_term1 = X_Error
+            if Command == 0:
+                base_angle_b = 90
+            elif Command == 1:
+                GPIO.output(27, GPIO.LOW)
+                GPIO.output(17, GPIO.HIGH)
+                GPIO.output(22, GPIO.LOW)
+            else:
+                P_term1 = X_Error
+                I_term_1 += X_Error
+                I_term_1 = max(-30, min(I_term_1, 30))
+                D_term1 = X_Error - prev_X_Error
+                bottom_angle = kp_1 * P_term1 + ki_1 * I_term_1 + kd_1 * D_term1
+                bottom_angle = int(max(-90, min(bottom_angle, 90)))
+                base_angle_b += bottom_angle
+
+            #Y axis values
             P_term2 = Y_Error
-
-            I_term_1 += X_Error
-            I_term_1 = max(-30, min(I_term_1, 30))
-
             I_term_2 += Y_Error
             I_term_2 = max(-30, min(I_term_2, 30))
-
-            D_term1 = X_Error - prev_X_Error
-
             D_term2 = Y_Error - prev_Y_Error
 
-            bottom_angle = kp_1 * P_term1 + ki_1 * I_term_1 + kd_1 * D_term1
-            
             top_angle = kp_2 * P_term2 + ki_2 * I_term_2 + kd_2 * D_term2
-
             top_angle = int(max(-60, min(top_angle, 60)))
-            bottom_angle = int(max(-90, min(bottom_angle, 90)))
-
-            base_angle_b += bottom_angle
+           
             base_angle_t += top_angle
 
             base_angle_b = int(max(0, min(base_angle_b, 180)))
             base_angle_t = int(max(40, min(base_angle_t, 180)))
-            
-
-            print(f"Y Error: {Y_Error} | Top Angle {base_angle_t}")
-            print(f"X Error: {X_Error} | Bottom Angle {base_angle_b}")
+        
             if cords != 'No_Target':
                 #only send new angle
-                if -1 <  X_Error < 1:
+                if -0.5 <  X_Error < 0.5:
                     pass
                 else:
                     set_angle_bot(base_angle_b) 
                 
-                if -1 < Y_Error < 1:
+                if -0.5 < Y_Error < 0.5:
                     pass 
                 else:
                     set_angle_top(base_angle_t)
