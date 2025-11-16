@@ -10,7 +10,7 @@ import mediapipe as mp
 
 
 
-def Player(queue):
+def Track(queue):
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=False,
@@ -20,7 +20,7 @@ def Player(queue):
     track_history = defaultdict(lambda: [])
     
     model_pre = YOLO("yolov8n.pt")# model option 1
-    model_pre.export(format = 'onnx', imgsz =320, opset=12)
+    model_pre.export(format = 'onnx', imgsz =160, opset=12)
 
     model = YOLO("yolov8n.onnx")
 
@@ -167,22 +167,27 @@ def Player(queue):
                                     
                                     index_x, index_y = int(index_tip.x * width), int(index_tip.y * height)
 
-                                    # Draw and print
+                                    # logic for detecting tumbs up
                                     if (thumb_y_tip < thumb_y_mid) and (thumb_y_tip < index_y):
                                         cv2.circle(frame, (thumb_x_tip, thumb_y_tip), 8, (0, 255, 0), -1)
                                         cv2.circle(frame, (thumb_x_mid, thumb_y_mid), 8, (0, 255, 0), -1)
-                                        queue.put([x_vector, y_vector, round(angle_deg, 2), "Thumbs up"]) 
+                                        queue.put([x_vector, y_vector, round(angle_deg, 2), 1]) 
+                                    elif (thumb_y_tip > thumb_y_mid) and (thumb_y_tip > index_y):
+                                        cv2.circle(frame, (thumb_x_tip, thumb_y_tip), 8, (0, 0, 255), -1)
+                                        cv2.circle(frame, (thumb_x_mid, thumb_y_mid), 8, (0, 0, 255), -1)
+                                        queue.put([x_vector, y_vector, round(angle_deg, 2), 2]) 
+                                    
                                     else:
                                         cv2.circle(frame, (thumb_x_tip, thumb_y_tip), 8, (255, 0, 0), -1)
                                         cv2.circle(frame, (thumb_x_mid, thumb_y_mid), 8, (255, 0, 0), -1)
-                                        queue.put([x_vector, y_vector, round(angle_deg, 2), "No command"]) 
+                                        queue.put([x_vector, y_vector, round(angle_deg, 2), 0]) 
 
                                     cv2.circle(frame, (index_x, index_y), 8, (255, 255, 100), -1)
 
                                     #print(f"Thumb_tip: ({thumb_x_tip}, {thumb_y_tip}), Thumb_base: ({thumb_x_mid}, {thumb_y_mid})")
-                                    
+                                   
                             else: 
-                                queue.put([x_vector, y_vector, round(angle_deg, 2), "No command"]) 
+                                queue.put([x_vector, y_vector, round(angle_deg, 2), 0])              
                 else:
                     #Skip other object types
                     queue.put('No_Target')
@@ -195,4 +200,3 @@ def Player(queue):
             break
     cap.release()
     cv2.destroyAllWindows()
-
