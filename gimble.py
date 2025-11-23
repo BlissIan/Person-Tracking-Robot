@@ -2,14 +2,35 @@ import RPi.GPIO as GPIO
 import time
 from multiprocessing import Process, Queue
 from adafruit_servokit import ServoKit
-import RPi.GPIO as GPIO
+import threading
+import serial
+
+def lidar_reader(distance_holder):
+    ser2 = serial.Serial('/dev/ttyAMA1', baudrate=115200, timeout=0.1)
+    buffer = bytearray()
+    
+    while True:
+        buffer += ser2.read(ser2.in_waiting or 1)
+        while len(buffer) >= 9:
+            if buffer[0] == 0x59 and buffer[1] == 0x59:
+                frame = buffer[:9]
+                buffer = buffer[9:]
+                distance_holder[0] = frame[2] + (frame[3] << 8)
+            else:
+                buffer = buffer[1:]
+        time.sleep(0.005)  # small delay to prevent CPU spinning
 
 
 
 
+def Gimble(queue1, queue2):
 
+       
+    distance_holder = [-1]  # shared between thread and main loop
+    # start lidar reading in background thread
+    t = threading.Thread(target=lidar_reader, args=(distance_holder,), daemon=True)
+    t.start()
 
-def Gimble(Queue):
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(22, GPIO.OUT)
     GPIO.setup(17, GPIO.OUT)
@@ -67,7 +88,7 @@ def Gimble(Queue):
     try:
         while True:
 
-            cords = Queue.get()
+            cords = queue1.get()
 
             if cords != 'No_Target':
                 X_Error = cords[0]
@@ -88,6 +109,7 @@ def Gimble(Queue):
             if Command == 0:
                 base_angle_b = 90
             elif Command == 1:
+                pass
                 GPIO.output(27, GPIO.LOW)
                 GPIO.output(17, GPIO.HIGH)
                 GPIO.output(22, GPIO.LOW)
@@ -132,6 +154,8 @@ def Gimble(Queue):
 
             prev_X_Error = X_Error
             prev_Y_Error = Y_Error
+            dist = distance_holder[0]
+            queue2.put(dist)
 
     except KeyboardInterrupt:
         # Clean up GPIO on program exit
