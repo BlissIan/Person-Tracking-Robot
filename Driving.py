@@ -1,5 +1,6 @@
 from gpiozero import Motor, PWMOutputDevice
 from multiprocessing import Process, Queue
+import time
 
 
 
@@ -44,6 +45,7 @@ def drive(w, v):
     wR = (v + w * wheelBase / 2) / wheelRad
 
     bound = 14.66
+    output_bound = 1
 
     #Bound left wheel
     if wL > bound:
@@ -57,8 +59,8 @@ def drive(w, v):
     elif wR < -bound:
         wR = -bound
 
-    wR_percent = ((wR - (-bound)) / (bound -(-bound)) * (0.5 - (-0.5)) + (-0.5))
-    wL_percent = ((wL - (-bound)) / (bound -(-bound)) * (0.5 - (-0.5)) + (-0.5))
+    wR_percent = ((wR - (-bound)) / (bound -(-bound)) * (output_bound - (-output_bound)) + (-output_bound))
+    wL_percent = ((wL - (-bound)) / (bound -(-bound)) * (output_bound - (-output_bound)) + (-output_bound))
 
     wR_percent = round(wR_percent,2)
     wL_percent = round(wL_percent,2)
@@ -72,55 +74,64 @@ def drive(w, v):
 
 #Driving logic
 def Rover_control(queue1, queue2):
-    kp = 0.01
+    kp = 0.007
+    ki = 0.001
+    kd = 0.005
+
+    i_term = 0
+    d_term = 0
+    p_term = 0
+    prev_error = 0
+    X_Error = 0
+    Y_Error = 0
+    Command = 0
     try:
         while True:
-            cords = queue1.get()
-            distance = queue2.get()
+            try:
+                cords = queue1.get()
+            except:
+                cords = "No_Target"
+            try:
+                distance = queue2.get()
+                last_distance = distance
+            except:
+                distance = last_distance
 
 
             print(f"distance: {distance}")
 
-            if cords != 'No_Target':
+            if cords == 'No_Target':
+                X_Error = None
+                drive(0,0)
+                continue
+                        
+            else:
                 X_Error = cords[0]
                 Y_Error = cords[1]
                 Command = cords[3]
-                        
-            else:
-                X_Error = X_Error
-                Y_Error = Y_Error
-                Command = 0
 
-            turn = X_Error * kp
+            p_term = X_Error
+
+            i_term += X_Error
+            i_term = max(-50, min(i_term, 50))
+
+            d_term = X_Error - prev_error
+
+            turn = p_term * kp + i_term * ki + d_term *kd
+
             print(f"Turn: {turn}")
-
-            if X_Error != 999 and distance > 130:
-                drive(turn, 0.15)
-            elif distance <= 130 and abs(X_Error) < 10:
-                drive(0,0)
-            else:
-                drive(0,0)
-    except KeyboardInterrupt:
-        print("Rover exiting, cleaning GPIO")
-        right_pwm.close()
-        left_pwm.close()
-        right_motor.close()
-        left_motor.close()
-
-def Rover_control_test(X_Error, distance):
-    kp = 0.01
-    try:
-        while True:
+            prev_error = X_Error
             
-            turn = X_Error * kp
-            print(f"Turn: {turn}")
-
-            if X_Error != 999 and distance > 130:
-                drive(turn, 0.15)
-            elif distance <= 130 and abs(X_Error) < 10:
+            if distance <= 100: #is to close back up
+                drive(0,-0.3)
+            elif distance > 130:
+                drive(turn, 0.3)
+            elif 100 < distance <= 130 and abs(X_Error) < 10: #if in good range stay put
                 drive(0,0)
             else:
                 drive(0,0)
+            time.sleep(0.01)
+
     except KeyboardInterrupt:
         print("Rover exiting, cleaning GPIO")
         right_pwm.close()
