@@ -85,30 +85,21 @@ def Rover_control(queue1, queue2):
     X_Error = 0
     Y_Error = 0
     Command = 0
+
     try:
         while True:
-            try:
-                cords = queue1.get()
-            except:
-                cords = "No_Target"
-            try:
-                distance = queue2.get()
-                last_distance = distance
-            except:
-                distance = last_distance
+            
+            cords = queue1.get() 
+            distance = queue2.get()
 
+            print(f"cords: {cords}")
 
-            print(f"distance: {distance}")
-
-            if cords == 'No_Target':
-                X_Error = None
-                drive(0,0)
-                continue
-                        
+            if cords != 'No_Target':
+                X_Error = cords[0]        
             else:
-                X_Error = cords[0]
-                Y_Error = cords[1]
-                Command = cords[3]
+                X_Error = X_Error
+                
+
 
             p_term = X_Error
 
@@ -121,16 +112,19 @@ def Rover_control(queue1, queue2):
 
             print(f"Turn: {turn}")
             prev_error = X_Error
-            
-            if distance <= 100: #is to close back up
-                drive(0,-0.3)
-            elif distance > 130:
-                drive(turn, 0.3)
-            elif 100 < distance <= 130 and abs(X_Error) < 10: #if in good range stay put
-                drive(0,0)
+            if cords != 'No_Target':
+                if distance <= 100: #is to close back up
+                    drive(0,-0.3)
+                elif distance > 130:
+                    drive(turn, 0.3)
+                elif 100 < distance <= 130 and abs(X_Error) < 10: #if in good range stay put
+                    drive(0,0)
+                else:
+                    drive(0,0)
             else:
                 drive(0,0)
-            time.sleep(0.01)
+                print("Stop, no target detected")
+                continue
 
     except KeyboardInterrupt:
         print("Rover exiting, cleaning GPIO")
@@ -138,4 +132,5 @@ def Rover_control(queue1, queue2):
         left_pwm.close()
         right_motor.close()
         left_motor.close()
+
 
