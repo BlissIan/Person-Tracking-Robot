@@ -6,13 +6,21 @@ from collections import defaultdict
 from ultralytics.utils.plotting import Annotator
 import math
 from multiprocessing import Process, Queue
+import mediapipe as mp
+
 
 
 def Track(queue):
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=1
+    )
+    mp_drawing = mp.solutions.drawing_utils
     track_history = defaultdict(lambda: [])
     
     model_pre = YOLO("yolov8n.pt")# model option 1
-    model_pre.export(format = 'onnx', imgsz =320, opset=12)
+    model_pre.export(format = 'onnx', imgsz =160, opset=12)
 
     model = YOLO("yolov8n.onnx")
 
@@ -81,7 +89,7 @@ def Track(queue):
                             # Add current position to history
                             track.append((float(box[0]), float(box[1])))
                         
-                            #Keep only specified trail length and average 3 points to get more stable results
+                            #average 3 points to get more stable results
                             if len(track) > 3:
                                 track.pop(0)
                             
@@ -93,15 +101,6 @@ def Track(queue):
 
                             points_average_x = round(points_average_x,3)
                             points_average_y = round(points_average_y,3)
-
-                            # Convert track history to NumPy array for Open CV drawing
-                            #points = np.hstack(track).astype(np.int32).reshape((-1,1,2))
-
-                            #Draw polyline (motion trail) showing where the person has moved
-                            #cv2.polylines(frame, [points], isClosed = False, color = (37,255,255), thickness=2)
-
-                            #center circle in bounding box at most resent position
-                            #cv2.circle(frame, (int(track[-1][0]), int(track[-1][1])), 5, (235, 219, 11), -1) #most recent point
                             
                             cv2.circle(frame, (int(points_average_x), int(points_average_y)), 5, (235, 219, 11), -1) #averaged point for smooter tracking but more delay
                             #non averaged values
@@ -117,7 +116,6 @@ def Track(queue):
                             angle_deg = np.rad2deg(angle_rad) + 180
                             angle_str = f"{angle_deg:.2f}"
 
-                            queue.put([x_vector, y_vector, round(angle_deg, 2)])
                             #print(f"X: = {x_vector}, Y: = {y_vector}, indenifier = {track_id}")
 
                             #Draw arrow to center point / where drone needs to go
@@ -136,13 +134,67 @@ def Track(queue):
                             #Print distance on line
                             cv2.putText(frame, angle_str, (text_x, text_y),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (235, 219, 11), 2, cv2.LINE_AA )
+                            # Convert BGR to RGB
+                            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                            # Process frame with MediaPipe Hands
+                            results = hands.process(rgb_frame)
+
+                            # Draw landmarks if hands are detected
+                            if results.multi_hand_landmarks: #if hand detected
+                                height, width, channels = frame.shape #Change shape of frame
+                                for hand_landmarks in results.multi_hand_landmarks: #loop thorugh results
+                                    mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS,
+                                                              mp_drawing.DrawingSpec(color=(121,22,76), thickness = 2, circle_radius=4),
+                                                              mp_drawing.DrawingSpec(color=(250,44,250), thickness = 2, circle_radius=2),) #Draw points on hand with lines connecting
+                                    
+                                    #Get coordinate of wrist 
+                                    wrist = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
+                                    wrist_x, wrist_y = int(wrist.x * width), int(wrist.y * height)
+
+                                    # Get coordinates of thumb tip
+                                    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+                                    thumb_x_tip, thumb_y_tip = int(thumb_tip.x * width), int(thumb_tip.y * height)
+
+                                    #Get coordinate of thumb_mid
+                                    thumb_mid = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_MCP]
+                                    thumb_x_mid, thumb_y_mid = int(thumb_mid.x * width), int(thumb_mid.y * height)
+
+                                    #Get coordinate of index_tip
+                                    index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+
+                                    
+                                    
+                                    index_x, index_y = int(index_tip.x * width), int(index_tip.y * height)
+
+                                    # logic for detecting tumbs up
+                                    if (thumb_y_tip < thumb_y_mid) and (thumb_y_tip < index_y):
+                                        cv2.circle(frame, (thumb_x_tip, thumb_y_tip), 8, (0, 255, 0), -1)
+                                        cv2.circle(frame, (thumb_x_mid, thumb_y_mid), 8, (0, 255, 0), -1)
+                                        queue.put([x_vector, y_vector, round(angle_deg, 2), 1]) 
+                                    elif (thumb_y_tip > thumb_y_mid) and (thumb_y_tip > index_y):
+                                        cv2.circle(frame, (thumb_x_tip, thumb_y_tip), 8, (0, 0, 255), -1)
+                                        cv2.circle(frame, (thumb_x_mid, thumb_y_mid), 8, (0, 0, 255), -1)
+                                        queue.put([x_vector, y_vector, round(angle_deg, 2), 2])
+                                    
+                                    else:
+                                        cv2.circle(frame, (thumb_x_tip, thumb_y_tip), 8, (255, 0, 0), -1)
+                                        cv2.circle(frame, (thumb_x_mid, thumb_y_mid), 8, (255, 0, 0), -1)
+                                        queue.put([x_vector, y_vector, round(angle_deg, 2), 0])
+
+                                    cv2.circle(frame, (index_x, index_y), 8, (255, 255, 100), -1)
+
+                                    #print(f"Thumb_tip: ({thumb_x_tip}, {thumb_y_tip}), Thumb_base: ({thumb_x_mid}, {thumb_y_mid})")
+                                   
+                            else: 
+                                queue.put([x_vector, y_vector, round(angle_deg, 2), 0])             
                 else:
                     #Skip other object types
                     queue.put('No_Target')
                     continue
         else:
+        #Skip other object types
             queue.put('No_Target')
-        
         #Display the annoted video fram in window
         cv2.imshow("Yolov8 Detection", frame)
 
