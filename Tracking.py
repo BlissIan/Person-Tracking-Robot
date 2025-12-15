@@ -9,30 +9,35 @@ from multiprocessing import Process, Queue
 import mediapipe as mp
 
 
+def Track(queue, frame_queue):
 
-def Track(queue):
+
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=False,
         max_num_hands=1
     )
+
     mp_drawing = mp.solutions.drawing_utils
     track_history = defaultdict(lambda: [])
     
     model_pre = YOLO("yolov8n.pt")# model option 1
-    model_pre.export(format = 'onnx', imgsz =160, opset=12)
+    model_pre.export(format = 'onnx', imgsz =320, opset=12)
 
     model = YOLO("yolov8n.onnx")
 
     names = model.names
-
+    
     cap = cv2.VideoCapture(0)
+    cap.set(3, 640)
+    cap.set(4, 480)
 
     while cap.isOpened():
         success, frame_flipped = cap.read()
         if success:
             
             frame = cv2.flip(frame_flipped, 1) #flip horizontal
+            #frame = cv2.flip(frame_flipped,0) #Flip virtical
 
             #Get size of frame
             frame_height, frame_width, channels = frame.shape
@@ -191,12 +196,24 @@ def Track(queue):
                 else:
                     #Skip other object types
                     queue.put('No_Target')
-                    continue
+                    pass
         else:
         #Skip other object types
             queue.put('No_Target')
         #Display the annoted video fram in window
-        cv2.imshow("Yolov8 Detection", frame)
+        #cv2.imshow("Yolov8 Detection", frame)
+
+        #Send to webserver
+        # Encode frame
+        ret, jpeg = cv2.imencode(
+            ".jpg", frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 30]
+        )
+
+        if ret and frame_queue is not None:
+            if frame_queue.full():
+                frame_queue.get()  # drop old frame
+            frame_queue.put(jpeg.tobytes())
 
         if cv2.waitKey(1) & 0xFF == ord("l"):
             break
